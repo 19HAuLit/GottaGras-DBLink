@@ -1,6 +1,6 @@
 mysql:
-  ip: localhost
-  port: 3306
-  database: minecraft
-  login: root
-  password: toor
+  ip: "localhost"
+  port: "3306"
+  database: "minecraft"
+  login: "root"
+  password: "toor"

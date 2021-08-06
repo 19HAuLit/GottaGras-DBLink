@@ -1,100 +1,65 @@
 package fun.gottagras.dblink;
 
 import fun.gottagras.mysql.GottaGrasMySQL;
-import org.bukkit.entity.Player;
-import org.bukkit.event.EventHandler;
-import org.bukkit.event.player.PlayerJoinEvent;
-import org.bukkit.event.player.PlayerQuitEvent;
-import org.bukkit.plugin.java.JavaPlugin;
+import net.md_5.bungee.api.ProxyServer;
+import net.md_5.bungee.api.plugin.Plugin;
+import net.md_5.bungee.config.Configuration;
+import net.md_5.bungee.config.ConfigurationProvider;
+import net.md_5.bungee.config.YamlConfiguration;
 
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
 import java.sql.Connection;
-import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.sql.Statement;
-import java.util.Date;
 import java.util.HashMap;
-import java.util.Objects;
 
-public class Main extends JavaPlugin
+public class Main extends Plugin
 {
     public Connection connection = null;
+    public Configuration config = null;
     public HashMap<String, Long> playersTimePlayed = new HashMap<String, Long>();
     public HashMap<String, Long> playersLastLogin = new HashMap<String, Long>();
 
     @Override
     public void onEnable()
     {
-        // CONFIG
-        saveDefaultConfig();
+        ProxyServer.getInstance().getPluginManager().registerListener(this, new Listeners(this));
 
-        // GottaGras-MySQL
-        connection = GottaGrasMySQL.connect(getConfig().getString("mysql.ip"), getConfig().getString("mysql.port"), getConfig().getString("mysql.database"), getConfig().getString("mysql.login"), getConfig().getString("mysql.password"));
+        if (!getDataFolder().exists()) getDataFolder().mkdir();
 
-        Statement statement = GottaGrasMySQL.createStatement(connection);
-        GottaGrasMySQL.statementExecute(statement, "CREATE TABLE IF NOT EXISTS players(uuid text, name text, time_played long, connected boolean)");
-        GottaGrasMySQL.closeStatement(statement);
-    }
+        File file = new File(getDataFolder(), "config.yml");
 
-    @EventHandler
-    public void onJoin(PlayerJoinEvent event)
-    {
-        Player player = event.getPlayer();
-        // GottaGras-MySQL
-        Statement statement = GottaGrasMySQL.createStatement(connection);
-        ResultSet resultSet = GottaGrasMySQL.statementQuery(statement, "SELECT uuid, time_played from players");
-        boolean inDB = false;
-        long time_played = 0;
-        try
+        if (!file.exists())
         {
-            while (resultSet.next())
+            try (InputStream in = getResourceAsStream("config.yml"))
             {
-                // CHECK IF PLAYER IS IN DB
-                if (Objects.equals(resultSet.getString("uuid"), player.getUniqueId().toString()))
-                {
-                    inDB = true;
-                    time_played = resultSet.getLong("time_played");
-                }
+                Files.copy(in, file.toPath());
+            }
+            catch (IOException e)
+            {
+                e.printStackTrace();
             }
         }
-        catch (SQLException e)
+
+        try
+        {
+            // Load config
+            config = ConfigurationProvider.getProvider(YamlConfiguration.class).load(new File(getDataFolder(), "config.yml"));
+            // Save config
+            ConfigurationProvider.getProvider(YamlConfiguration.class).save(config, new File(getDataFolder(), "config.yml"));
+        }
+        catch (IOException e)
         {
             GottaGrasMySQL.log(e.getMessage());
         }
 
-        // ADD OR UPDATE PLAYERS DATA
-        if (!inDB)
-        {
-            GottaGrasMySQL.statementUpdate(statement, "INSERT INTO players (uuid, name, time_played, connected) VALUES ('"+player.getUniqueId().toString()+"', '"+player.getName()+"', 0, 1)");
-        }
-        else
-        {
-            GottaGrasMySQL.statementUpdate(statement, "UPDATE players SET name = '"+player.getName()+"', connected = 1 WHERE uuid LIKE '"+player.getUniqueId().toString()+"'");
-        }
-
-        Date date = new Date();
-
-        playersTimePlayed.put(player.getUniqueId().toString(), time_played);
-        playersLastLogin.put(player.getUniqueId().toString(), date.getTime());
-        GottaGrasMySQL.closeStatement(statement);
-    }
-
-    @EventHandler
-    public void onQuit(PlayerQuitEvent event)
-    {
-        Player player = event.getPlayer();
-        Date date = new Date();
-
-        String uuid = player.getUniqueId().toString();
-        long playerLoginTime = playersLastLogin.get(uuid);
-        long playerTimePlayed = playersTimePlayed.get(uuid);
-        long currentTime = date.getTime();
-
-        long currentTimePlayed = currentTime - playerLoginTime;
-        long totalTimePlayed = currentTimePlayed + playerTimePlayed;
-
         // GottaGras-MySQL
+        connection = GottaGrasMySQL.connect(config.getString("mysql.ip"), config.getString("mysql.port"), config.getString("mysql.database"), config.getString("mysql.login"), config.getString("mysql.password"));
+        System.out.println(connection);
         Statement statement = GottaGrasMySQL.createStatement(connection);
-        GottaGrasMySQL.statementUpdate(statement, "UPDATE players SET time_played = "+totalTimePlayed+", connected = 0 WHERE uuid LIKE '"+player.getUniqueId().toString()+"'");
+        GottaGrasMySQL.statementExecute(statement, "CREATE TABLE IF NOT EXISTS players(uuid text, name text, time_played long, connected boolean)");
         GottaGrasMySQL.closeStatement(statement);
     }
 
